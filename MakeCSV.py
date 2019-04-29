@@ -115,7 +115,7 @@ def makeCSV(division, num_previous_matches = 5, data_size = 5000, noob_threshold
     #     for match in shooters[shooter]:
     #         print("\t", match)
 
-    filename = "/Data/" + division + "_" + str(data_size) + ".csv"
+    filename = "/Data/" + division + "_" + str(num_previous_matches) + "_" + str(data_size) + ".csv"
 
     unique_hashes = set()
 
