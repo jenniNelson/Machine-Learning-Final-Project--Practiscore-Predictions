@@ -13,12 +13,11 @@ import numpy as np
 import tensorflow as tf
 
 from tensorflow import keras
-from keras import initializers as inits
 
 class ControlPanel:
     def __init__(self, division='limited', data_x=None, data_y=None, model=None, history_size = 5, activation='tanh', initialization=None,
                  network_type='NN', width=5, depth=10, epochs = 25, batch_size=70,
-                 train_test_ratio=.5, label_index=-1, data_transform_func = None,
+                 train_test_ratio=.5, label_index=-2, data_transform_func = None,
                  powerfactor_included =True, match_size_included = True, verbose=0, print_results=True):
         self.division = division
         self.history_size = history_size
@@ -37,7 +36,8 @@ class ControlPanel:
         self.model= model
         self.verbose = verbose
         self.print_results = print_results
-        self.data_x = data_x
+        self.data_x = np.delete(data_x, [range(0,15-(history_size*3)), range(15, 30-(history_size*3))], 1)
+        self.data_x = np.delete(self.data_x, self.data_x.shape[1]-1, 1)
         self.data_y = data_y
 
     def train_and_test(self):
@@ -46,6 +46,7 @@ class ControlPanel:
             data_filename = "Data/" + self.division + "_" + str(self.history_size) + "_5000.csv"
 
             self.data_x, self.data_y = read_data(data_filename, self.label_index)
+            np.delete(data_x, [range(0, 15 - (history_size * 3)), range(15, 30 - (history_size * 3))], 1)
 
         if self.data_transform_func is not None:
             self.data_x, self.data_y = self.data_transform_func(self.data_x, self.data_y)
@@ -64,7 +65,7 @@ class ControlPanel:
 
         if self.model is None:
 
-            self.model = get_model(input_width=data_x.shape[1],
+            self.model = get_model(input_width=train_data_x.shape[1],
                                    num_hidden_layers=self.depth,
                                    hidden_layer_width=self.width,
                                    activation=self.activation,
@@ -87,6 +88,7 @@ class ControlPanel:
 
         if self.print_results:
             format_string = "initializer: {}\tactivation: {}\twidth: {}\tdepth: {}\ttrain: loss {:<7.4f}, accuracy {:<7.4f}\ttest: loss {:<7.4f}, accuracy {:<7.4f}\t"
+            format_string = "{},{},{},{},{:.4f},{:.4f},{:.4f},{:.4f}"
             print(format_string.format(self.initialization, self.activation, self.width, self.depth, train_scores[0], train_scores[-1], test_scores[0], test_scores[-1]))
         return train_scores, test_scores, self.model
 
@@ -95,7 +97,7 @@ class ControlPanel:
 
 
 
-def read_data(relative_filepath, label_index=-1):
+def read_data(relative_filepath, label_index=-1, exclude_indices=[-2]):
 
     data = np.genfromtxt(MY_DIR + "/" + relative_filepath, delimiter=',')
 
@@ -108,7 +110,7 @@ def read_data(relative_filepath, label_index=-1):
     # data[:, -1] -= .5
     # data[:, -1] *= 2
 
-    return data[ : , :label_index], data[ : , label_index]
+    return data[:, :label_index], data[ : , label_index]
 
 
 def get_model(input_width, num_hidden_layers, hidden_layer_width, activation, kernel_initializer=None, bias_initializer=None):
@@ -127,24 +129,35 @@ def get_model(input_width, num_hidden_layers, hidden_layer_width, activation, ke
 
     return model
 
+def apply_transform(data_x, coefficients):
+    return (data_x * coefficients)
+
 
 
 if __name__ == '__main__':
-
 
     max_test_acc = 0
     min_test_loss = 1
     max_acc_init, max_acc_act, max_acc_width, max_acc_depth = None, None, None, None
     min_loss_init, min_loss_act, min_loss_width, min_loss_depth = None, None, None, None
 
-    data_x, data_y = read_data("Data/limited_5_5000.csv")
 
-    for activation in [ 'tanh', 'relu', 'softmax', 'selu', 'softsign', 'sigmoid', 'linear' ]:
+    data_x, data_y = read_data("Data/limited_5_5000.csv", label_index=-1)
+
+    # history_size=4
+    # test_trimming = np.delete(data_x[:2], [range(0,15-(history_size*3)), range(15, 30-(history_size*3))], 1)
+    # print(test_trimming[0])
+    # print(data_x[:2,15-(5*3):])
+    #
+
+    for activation in reversed([ 'tanh', 'relu', 'softmax', 'selu', 'softsign', 'sigmoid', 'linear' ]):
         for initializer in ['glorot_normal', 'he_normal', 'random_uniform']:
-            for width in [5, 10, 25, 50, 100]:
-                for depth in [3,5,9,11]:
+            for depth in [5,9,11]:
+                for width in [10, 25, 50, 100]:
                     control_panel = ControlPanel(data_x=data_x, data_y=data_y, history_size=5, activation=activation, width=width, depth=depth, verbose=0, initialization=initializer)
                     _, test_scores, _ = control_panel.train_and_test()
+
+
                     if test_scores[-1] > max_test_acc:
                         max_test_acc = test_scores[-1]
                         max_acc_init, max_acc_act, max_acc_width, max_acc_depth = initializer, activation, width, depth
@@ -153,8 +166,73 @@ if __name__ == '__main__':
                         max_test_loss = test_scores[0]
                         min_loss_init, min_loss_act, min_loss_width, min_loss_depth = initializer, activation, width, depth
 
-    print("Max accuracy settings: ", max_acc_init, max_acc_act, max_acc_width, max_acc_depth)
+
+
+    print("\nMax accuracy settings: ", max_acc_init, max_acc_act, max_acc_width, max_acc_depth)
     print("Min loss settings: ", min_loss_init, min_loss_act, min_loss_width, min_loss_depth)
+    print()
+    #
+    #
+    print("Running optimal settings using variable match history sizes.")
+    print("No transform:")
+    data_x, data_y = read_data("Data/limited_5_50000.csv")
+
+    for history_size in (1, 2, 3, 4, 5):
+        print(history_size, ",")
+        control_panel = ControlPanel(data_x=data_x, data_y=data_y,
+                                     history_size=history_size,
+                                     activation=max_acc_act,
+                                     width=max_acc_width,
+                                     depth=max_acc_depth,
+                                     verbose=0,
+                                     initialization=max_acc_init)
+
+        _, test_scores, _ = control_panel.train_and_test()
+
+    print("Linear Transform: [1,2,3,4,5]")
+
+    data_x, data_y = read_data("Data/limited_5_50000.csv")
+
+    # print(data_x[0])
+    data_x = apply_transform(data_x, [1,1,1,2,2,1,3,3,1,4,4,1,5,5,1,1,1,1,2,2,1,3,3,1,4,4,1,5,5,1,1])
+
+    # print(data_x[0])
+
+    for history_size in (1, 2, 3, 4, 5):
+        print(history_size, ",")
+        control_panel = ControlPanel(data_x=data_x, data_y=data_y,
+                                     history_size=history_size,
+                                     activation=max_acc_act,
+                                     width=max_acc_width,
+                                     depth=max_acc_depth,
+                                     verbose=0,
+                                     initialization=max_acc_init)
+
+        _, test_scores, _ = control_panel.train_and_test()
+
+
+
+    print("Exponential Transform: [1,2,4,8,16]")
+
+    data_x, data_y = read_data("Data/limited_5_50000.csv")
+
+    data_x = apply_transform(data_x, [1,1,1,2,2,1,4,4,1,8,8,1,16,16,1,1,1,1,2,2,1,4,4,1,8,8,1,16,16,1,1])
+
+    print(data_x[0])
+
+    for history_size in (1, 2, 3, 4, 5):
+        print(history_size, ",")
+        control_panel = ControlPanel(data_x=data_x, data_y=data_y,
+                                     history_size=history_size,
+                                     activation=max_acc_act,
+                                     width=max_acc_width,
+                                     depth=max_acc_depth,
+                                     verbose=0,
+                                     initialization=max_acc_init)
+
+        _, test_scores, _ = control_panel.train_and_test()
+
+
 
 
 
